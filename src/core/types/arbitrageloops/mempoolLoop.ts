@@ -1,12 +1,15 @@
 import { sha256 } from "@cosmjs/crypto";
-import { toHex } from "@cosmjs/encoding";
+import { toHex, toUtf8 } from "@cosmjs/encoding";
 import { EncodeObject } from "@cosmjs/proto-signing";
+import { coin, StdFee } from "@cosmjs/stargate";
+import { MsgExecuteContract } from "cosmjs-types/cosmwasm/wasm/v1/tx";
 import { inspect } from "util";
 
 import { OptimalTrade } from "../../arbitrage/arbitrage";
 import { ChainOperator } from "../../chainOperator/chainoperator";
 import { Logger } from "../../logging";
 import { BotConfig } from "../base/botConfig";
+import { addNewBorrower, Liquidate, processLiquidate, processMempoolLiquidation } from "../base/liquidate";
 import { LogType } from "../base/logging";
 import { decodeMempool, flushTxMemory, IgnoredAddresses, Mempool, MempoolTx } from "../base/mempool";
 import { Path } from "../base/path";
@@ -27,6 +30,7 @@ export class MempoolLoop {
 	totalBytes = 0;
 	mempool!: Mempool;
 	iterations = 0;
+	liquidate?: Liquidate;
 
 	/**
 	 *
@@ -57,9 +61,11 @@ export class MempoolLoop {
 		logger: Logger | undefined,
 		pathlib: Array<Path>,
 		ignoreAddresses: IgnoredAddresses,
+		liquidate: Liquidate | undefined,
 	) {
 		this.pools = pools;
 		this.CDpaths = new Map<string, [number, number, number]>();
+
 		this.paths = paths;
 		this.arbitrageFunction = arbitrage;
 		this.updateStateFunction = updateState;
@@ -69,6 +75,7 @@ export class MempoolLoop {
 		this.logger = logger;
 		this.pathlib = pathlib;
 		this.ignoreAddresses = ignoreAddresses;
+		this.liquidate = liquidate;
 	}
 
 	/**
@@ -76,6 +83,8 @@ export class MempoolLoop {
 	 */
 	public async step() {
 		this.iterations++;
+		this.updateStateFunction(this.chainOperator, this.pools);
+		let newLoans: any = new Array<any>();
 		const arbTrade: OptimalTrade | undefined = this.arbitrageFunction(this.paths, this.botConfig);
 
 		if (arbTrade) {
@@ -98,7 +107,6 @@ export class MempoolLoop {
 			const mempoolTxs: Array<MempoolTx> = decodeMempool(
 				this.mempool,
 				this.ignoreAddresses,
-				this.botConfig.timeoutDuration,
 				this.iterations,
 			);
 
@@ -107,6 +115,19 @@ export class MempoolLoop {
 				continue;
 			} else {
 				applyMempoolMessagesOnPools(this.pools, mempoolTxs);
+			}
+			if (this.liquidate) {
+				const liquidActions = await processMempoolLiquidation(this.mempool, this.liquidate);
+				const toLiquidate = await processLiquidate(this.liquidate.loans, this.liquidate.prices, liquidActions);
+
+				if (toLiquidate[0].length > 0) {
+					for (let x = 0; x < toLiquidate[0].length; x++) {
+						await this.sendLiquidation(toLiquidate[0][x].overseer, toLiquidate[0][x].address);
+					}
+				}
+				if (toLiquidate[1].length > 0) {
+					newLoans = newLoans.concat(toLiquidate[1]);
+				}
 			}
 
 			const arbTrade = this.arbitrageFunction(this.paths, this.botConfig);
@@ -122,7 +143,37 @@ export class MempoolLoop {
 				break;
 			}
 		}
+		if (newLoans.length > 0) {
+			newLoans = new Set(newLoans);
+			await addNewBorrower([...newLoans], this.liquidate!, this.chainOperator);
+		}
 		return;
+	}
+
+	/**
+	 *
+	 */
+	async sendLiquidation(overseer: string, address: string) {
+		const message = {
+			liquidate_collateral: {
+				borrower: address,
+			},
+		};
+		const encodedMsgObject: EncodeObject = {
+			typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract",
+			value: MsgExecuteContract.fromPartial({
+				sender: this.chainOperator.client.publicAddress,
+				contract: overseer,
+				msg: toUtf8(JSON.stringify(message)),
+				funds: [],
+			}),
+		};
+		const TX_FEE: StdFee = { amount: [coin(20000, this.botConfig.gasDenom)], gas: "2800000" };
+
+		const txResponse = await this.chainOperator.signAndBroadcast([encodedMsgObject], TX_FEE);
+		if (txResponse.code === 0) {
+			this.chainOperator.client.sequence = this.chainOperator.client.sequence + 1;
+		}
 	}
 
 	/**

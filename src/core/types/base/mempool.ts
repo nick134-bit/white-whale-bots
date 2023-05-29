@@ -5,6 +5,8 @@ import { MsgExecuteContractCompat as MsgExecuteContractCompatBase } from "@injec
 import { MsgSend } from "cosmjs-types/cosmos/bank/v1beta1/tx";
 import { MsgExecuteContract } from "cosmjs-types/cosmwasm/wasm/v1/tx";
 
+import { flushTxMemoryLiq } from "./liquidate";
+
 export interface Mempool {
 	n_txs: string;
 	total: string;
@@ -28,6 +30,7 @@ let txMemory: { [key: string]: boolean } = {};
  */
 export function flushTxMemory() {
 	txMemory = {};
+	flushTxMemoryLiq();
 }
 
 /**
@@ -44,7 +47,6 @@ export function showTxMemory() {
 export function decodeMempool(
 	mempool: Mempool,
 	ignoreAddresses: IgnoredAddresses,
-	timeoutDur: number,
 	iteration: number,
 ): Array<MempoolTx> {
 	const decodedMessages: Array<MempoolTx> = [];

@@ -10,6 +10,7 @@ import { MempoolLoop } from "./core/types/arbitrageloops/mempoolLoop";
 import { NoMempoolLoop } from "./core/types/arbitrageloops/nomempoolLoop";
 import { SkipLoop } from "./core/types/arbitrageloops/skipLoop";
 import { setBotConfig } from "./core/types/base/botConfig";
+import { getliqudationinfos, Liquidate } from "./core/types/base/liquidate";
 import { LogType } from "./core/types/base/logging";
 import { removedUnusedPools } from "./core/types/base/pool";
 // load env files
@@ -58,6 +59,10 @@ async function main() {
 		return;
 	});
 	const chainOperator = await ChainOperator.connectWithSigner(botConfig);
+	let liquidate: Liquidate | undefined;
+	if (botConfig.overseer) {
+		liquidate = await getliqudationinfos(botConfig.overseer, chainOperator);
+	}
 	let setupMessage = "---".repeat(30);
 	const allPools = await initPools(chainOperator, botConfig.poolEnvs, botConfig.mappingFactoryRouter);
 	const graph = newGraph(allPools);
@@ -70,7 +75,6 @@ Total Paths:** \t${paths.length}\n`;
 		const nrOfPaths = paths.filter((path) => path.pools.length === pathlength).length;
 		setupMessage += `**${pathlength} HOP Paths:** \t${nrOfPaths}\n`;
 	}
-
 	setupMessage += `(Removed ${allPools.length - filteredPools.length} unused pools)\n`;
 	setupMessage += "---".repeat(30);
 
@@ -99,6 +103,7 @@ Total Paths:** \t${paths.length}\n`;
 			logger,
 			[...paths],
 			botConfig.ignoreAddresses,
+			liquidate,
 		);
 	} else if (botConfig.useMempool === true) {
 		await logger.sendMessage("Initializing mempool loop...", LogType.Console);
@@ -114,6 +119,7 @@ Total Paths:** \t${paths.length}\n`;
 			logger,
 			[...paths],
 			botConfig.ignoreAddresses,
+			liquidate,
 		);
 	} else {
 		await logger.sendMessage("Initializing non-mempool loop...", LogType.Console);
