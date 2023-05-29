@@ -104,11 +104,7 @@ export class MempoolLoop {
 				this.totalBytes = +this.mempool.total_bytes;
 			}
 
-			const mempoolTxs: Array<MempoolTx> = decodeMempool(
-				this.mempool,
-				this.ignoreAddresses,
-				this.iterations,
-			);
+			const mempoolTxs: Array<MempoolTx> = decodeMempool(this.mempool, this.ignoreAddresses, this.iterations);
 
 			// Checks if there is a SendMsg from a blacklisted Address, if so add the reciever to the timeouted addresses
 			if (mempoolTxs.length === 0) {

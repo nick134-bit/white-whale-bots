@@ -439,18 +439,14 @@ export async function addNewBorrower(
 	if (newLoans.length > 0) {
 		//const newLoans = Object.keys(newLoans)
 		for (let x = 0; x < newLoans.length; x++) {
-			let loan_query = await operator.queryContractSmart(liqObj.configs[newLoans[x].overseer].marketContract!, {
+			const loan_query = await operator.queryContractSmart(liqObj.configs[newLoans[x].overseer].marketContract!, {
 				borrower_info: { borrower: newLoans[x].address },
 			});
-			loan_query = JSON.parse(loan_query);
-			let collQuery = await operator.queryContractSmart(newLoans[x].overseer, {
+			const collQuery = await operator.queryContractSmart(newLoans[x].overseer, {
 				collaterals: { borrower: newLoans[x].address },
 			});
-			collQuery = JSON.parse(collQuery);
-			const collateral = collQuery.data.all_collaterals.find(
-				(elem: any) => (elem.borrower = newLoans[x].address),
-			);
-			const loanmt = loan_query.data.borrower_infos.find((elem: any) => (elem.borrower = newLoans[x].address));
+			const collateral = collQuery.collaterals;
+			const loanmt = loan_query.loan_amount;
 
 			addNewLoan(
 				liqObj.loans,
@@ -458,7 +454,7 @@ export async function addNewBorrower(
 				newLoans[x].address,
 				collateral,
 				liqObj.prices[newLoans[x].overseer],
-				loanmt.loan_amount,
+				Number(loanmt),
 			);
 		}
 	}
@@ -471,7 +467,7 @@ function addNewLoan(
 	loansObj: Loans,
 	overseer: string,
 	address: string,
-	collateral: Array<[string, number]>,
+	collateral: Array<[string, string|number]>,
 	prices: PriceFeed,
 	loan_amount: number,
 ) {
@@ -486,8 +482,8 @@ function addNewLoan(
 	};
 	let tmp_borrowLimit = 0;
 	collateral.forEach((elem) => {
-		loansObj[overseer][address].collaterals![elem[0]] = elem[1];
-		tmp_borrowLimit = Math.floor(elem[1] * prices[elem[0]].price * prices[elem[0]].ltv) + tmp_borrowLimit;
+		loansObj[overseer][address].collaterals![elem[0]] = Number(elem[1]);
+		tmp_borrowLimit = Math.floor(Number(elem[1]) * prices[elem[0]].price * prices[elem[0]].ltv) + tmp_borrowLimit;
 	});
 	loansObj[overseer][address].borrowLimit = tmp_borrowLimit;
 	loansObj[overseer][address].loanAmt = loan_amount;

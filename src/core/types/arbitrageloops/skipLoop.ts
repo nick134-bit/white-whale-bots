@@ -90,11 +90,7 @@ export class SkipLoop extends MempoolLoop {
 				this.totalBytes = +this.mempool.total_bytes;
 			}
 
-			const mempoolTxs: Array<MempoolTx> = decodeMempool(
-				this.mempool,
-				this.ignoreAddresses,
-				this.iterations,
-			);
+			const mempoolTxs: Array<MempoolTx> = decodeMempool(this.mempool, this.ignoreAddresses, this.iterations);
 
 			if (this.liquidate) {
 				const liquidActions = await processMempoolLiquidation(this.mempool, this.liquidate);
